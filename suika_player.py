@@ -25,19 +25,17 @@ from neat import (
 from neat.config import Config
 from neat.nn import FeedForwardNetwork
 
-SUIKA_VERSION = "0.8.1"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NEAT_CONFIG = os.path.join(SCRIPT_DIR, "neat.config")
-IMAGE_DIR = os.path.join(SCRIPT_DIR, "images", SUIKA_VERSION)
+IMAGE_DIR = os.path.join(SCRIPT_DIR, "images")
 HIGH_SCORE_FILE = os.path.join(SCRIPT_DIR, "high_score.txt")
 GAME_LOG_FILE = os.path.join(SCRIPT_DIR, "logs", "suika_combination.log")
 SUIKA_EXECUTABLE = os.path.join(
     os.path.expanduser("~"),
     "OneDrive",
     "Desktop",
-    "suikagame",
-    SUIKA_VERSION,
+    "Suika Combination",
     "suika_combination.exe",
 )
 
