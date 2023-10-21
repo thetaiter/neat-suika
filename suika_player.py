@@ -321,7 +321,7 @@ class SuikaGameController:
                 end_activation = time.time()
 
                 compute_times.append(end_compute - start_compute)
-                activation_times.append(end_activation - start_compute)
+                activation_times.append(end_activation - end_compute)
 
                 position = round(output[0] * self.bucket_size)
                 self.drop_at_position(position, output[1])
@@ -400,12 +400,14 @@ class SuikaGameController:
                 self.quit()
 
         print("Launching Suika Combination")
+        if not os.path.exists(os.path.join(SCRIPT_DIR, "logs")):
+            os.makedirs(os.path.join(SCRIPT_DIR, "logs"))
         subprocess.Popen(
             f"{SUIKA_EXECUTABLE} --verbose",
             stdout=open(GAME_LOG_FILE, "w"),
             stderr=open(GAME_LOG_FILE, "w"),
         )
-        time.sleep(1)
+        time.sleep(1.5)
 
         window: pygetwindow.Win32Window = pygetwindow.getWindowsWithTitle(self.title)[0]
         window.moveTo(*self.position)
