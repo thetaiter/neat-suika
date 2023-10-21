@@ -310,18 +310,10 @@ class SuikaGameController:
             self.start()
 
             turns = 0
-            compute_times = []
-            activation_times = []
             start = time.time()
             while not self._is_game_over() and not self._killswitch():
-                start_compute = time.time()
                 state = self._compute_game_state()
-                end_compute = time.time()
                 output = net.activate(state)
-                end_activation = time.time()
-
-                compute_times.append(end_compute - start_compute)
-                activation_times.append(end_activation - end_compute)
 
                 position = round(output[0] * self.bucket_size)
                 self.drop_at_position(position, output[1])
@@ -337,8 +329,6 @@ class SuikaGameController:
             end = time.time()
 
             print(f"Time: {timedelta(seconds=end-start)}")
-            print(f"Avg Compute Time: {sum(compute_times)/len(compute_times)}")
-            print(f"Avg Activation Time: {sum(activation_times)/len(activation_times)}")
 
             self._extract_score(final=True)
             g.fitness = max(0, self.score - (turns * 4))
@@ -355,6 +345,7 @@ class SuikaGameController:
                 self.submit_score(self.gamer_tag)
 
             self.reset(close_window=True)
+            time.sleep(1)
 
             count += 1
 
