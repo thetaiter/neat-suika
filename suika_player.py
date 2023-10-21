@@ -345,7 +345,7 @@ class SuikaGameController:
                 self.submit_score(self.gamer_tag)
 
             self.reset(close_window=True)
-            time.sleep(1)
+            time.sleep(2)
 
             count += 1
 
@@ -398,7 +398,7 @@ class SuikaGameController:
             stdout=open(GAME_LOG_FILE, "w"),
             stderr=open(GAME_LOG_FILE, "w"),
         )
-        time.sleep(1.5)
+        time.sleep(2)
 
         window: pygetwindow.Win32Window = pygetwindow.getWindowsWithTitle(self.title)[0]
         window.moveTo(*self.position)
