@@ -136,18 +136,22 @@ class SuikaGameController:
 
         game_bucket_image = cv2.cvtColor(np.array(game_bucket), cv2.COLOR_RGB2BGR)
         game_bucket_gray = cv2.cvtColor(game_bucket_image, cv2.COLOR_BGR2GRAY)
-        _, game_bucket_thresh = cv2.threshold(game_bucket_gray, 64, 255, cv2.THRESH_BINARY)
-        game_bucket_contours, _ = cv2.findContours(game_bucket_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        _, game_bucket_thresh = cv2.threshold(
+            game_bucket_gray, 64, 255, cv2.THRESH_BINARY
+        )
+        game_bucket_contours, _ = cv2.findContours(
+            game_bucket_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        )
 
         game_bucket_rectangles = np.zeros(1200)
         for i in range(len(game_bucket_contours)):
-            if 4*i < 1200:
+            if 4 * i < 1200:
                 if cv2.contourArea(game_bucket_contours[i]) > 81:
                     x, y, w, h = cv2.boundingRect(game_bucket_contours[i])
-                    game_bucket_rectangles[4*i] = x
-                    game_bucket_rectangles[(4*i)+1] = y
-                    game_bucket_rectangles[(4*i)+2] = w
-                    game_bucket_rectangles[(4*i)+3] = h
+                    game_bucket_rectangles[4 * i] = x
+                    game_bucket_rectangles[(4 * i) + 1] = y
+                    game_bucket_rectangles[(4 * i) + 2] = w
+                    game_bucket_rectangles[(4 * i) + 3] = h
 
         current_item = self._get_next_screenshot(current=True)
         next_item = self._get_next_screenshot()
