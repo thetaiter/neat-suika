@@ -305,7 +305,7 @@ class SuikaGameController:
             if count != 1:
                 print()
 
-            print("="*42)
+            print("=" * 42)
             print(f"Running genome {count}")
 
             start = time.time()
@@ -346,11 +346,11 @@ class SuikaGameController:
             self.reset(close_window=True)
             end = time.time()
 
-            print("-"*42)
+            print("-" * 42)
             print(f"Final Score: {score}\tHigh Score: {self.high_score}")
             print(f"Turns: {turns}\t\tFitness: {g.fitness}")
             print(f"Time: {timedelta(seconds=end-start)}")
-            print("="*42)
+            print("=" * 42)
 
             count += 1
 
