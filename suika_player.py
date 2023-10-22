@@ -187,6 +187,8 @@ class SuikaGameController:
 
         if text:
             self.score = int(text)
+            if final and self.score > self.high_score:
+                image.save(os.path.join(SCRIPT_DIR, "high_score.png"))
 
     def _get_game_bucket_screenshot(self):
         self._check_window()
@@ -345,7 +347,6 @@ class SuikaGameController:
                 self.submit_score(self.gamer_tag)
 
             self.reset(close_window=True)
-            time.sleep(2)
 
             count += 1
 
@@ -414,6 +415,8 @@ class SuikaGameController:
             self._click_image("quit-button")
         else:
             self._click_image("quit-button")
+        
+        time.sleep(2)
 
     def reset(self, close_window: bool = False):
         self.score = 0
