@@ -236,12 +236,12 @@ class SuikaGameController:
             x_offset = 538
             y_offset = 342
             width = 220
-            height = 50
+            height = 70
         else:
             x_offset = 90
             y_offset = 388
             width = 220
-            height = 48
+            height = 70
 
         screenshot = pyautogui.screenshot(
             region=(
@@ -298,13 +298,17 @@ class SuikaGameController:
         )
 
     def _run_neat(self, genomes: list, config: Config):
+        print(f"There are {len(genomes)} genomes to run in this generation\n")
+
         count = 1
         for _, g in genomes:
             if count != 1:
                 print()
 
+            print("="*42)
             print(f"Running genome {count}")
 
+            start = time.time()
             net = FeedForwardNetwork.create(g, config)
             g.fitness = 0
 
@@ -312,7 +316,6 @@ class SuikaGameController:
             self.start()
 
             turns = 0
-            start = time.time()
             while not self._is_game_over() and not self._killswitch():
                 state = self._compute_game_state()
                 output = net.activate(state)
@@ -328,16 +331,9 @@ class SuikaGameController:
                 turns += 1
                 self._extract_score()
                 g.fitness = max(0, self.score - (turns * 4))
-            end = time.time()
-
-            print(f"Time: {timedelta(seconds=end-start)}")
 
             self._extract_score(final=True)
             g.fitness = max(0, self.score - (turns * 4))
-
-            print(f"Final Score: {self.score}")
-            print(f"Turns: {turns}")
-            print(f"Fitness: {g.fitness}")
 
             if self.killswitch:
                 self.close()
@@ -346,11 +342,20 @@ class SuikaGameController:
             if self.check_high_score():
                 self.submit_score(self.gamer_tag)
 
+            score = self.score
             self.reset(close_window=True)
+            end = time.time()
+
+            print("-"*42)
+            print(f"Final Score: {score}\tHigh Score: {self.high_score}")
+            print(f"Turns: {turns}\t\tFitness: {g.fitness}")
+            print(f"Time: {timedelta(seconds=end-start)}")
+            print("="*42)
 
             count += 1
 
         print("\nAll genomes in this generation have been run!")
+        print(f"The current high score is {self.high_score}.")
         print("\nComputing statistics and generating next generation...\n")
 
     def _write_high_score(self):
@@ -415,7 +420,7 @@ class SuikaGameController:
             self._click_image("quit-button")
         else:
             self._click_image("quit-button")
-        
+
         time.sleep(2)
 
     def reset(self, close_window: bool = False):
