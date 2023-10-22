@@ -161,6 +161,7 @@ cython_debug/
 #.idea/
 
 # User ignores
+/checkpoints
 /logs
 high_score.txt
 high_score.png

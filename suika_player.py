@@ -1,5 +1,6 @@
 # Import built-ins
 import os
+import pickle
 import subprocess
 import time
 from datetime import timedelta
@@ -14,6 +15,7 @@ import pytesseract
 
 # Import NEAT libraries
 from neat import (
+    Checkpointer,
     DefaultGenome,
     DefaultReproduction,
     DefaultSpeciesSet,
@@ -352,6 +354,13 @@ class SuikaGameController:
             print(f"Time: {timedelta(seconds=end-start)}")
             print("=" * 42)
 
+            genomes_left = len(genomes) - count
+            verb_plural = "are" if genomes_left > 1 else "is"
+            genome_plural = "genomes" if genomes_left > 1 else "genome"
+            print(
+                f"\nThere {verb_plural} {genomes_left} {genome_plural} remaining in this generation"
+            )
+
             count += 1
 
         print("\nAll genomes in this generation have been run!")
@@ -414,14 +423,18 @@ class SuikaGameController:
         print(f"Quitting Suika Combination")
 
         if self._click_image("return-to-title-button", exit_on_failure=False):
-            self._click_image("quit-button")
+            self._click_image("quit-button", exit_on_failure=False)
         elif self._click_image("exit-button", exit_on_failure=False):
-            self._click_image("yes-button")
-            self._click_image("quit-button")
+            self._click_image("yes-button", exit_on_failure=False)
+            self._click_image("quit-button", exit_on_failure=False)
         else:
-            self._click_image("quit-button")
+            self._click_image("quit-button", exit_on_failure=False)
 
         time.sleep(2)
+
+        if pygetwindow.getWindowsWithTitle(self.title):
+            self.window.close()
+            time.sleep(2)
 
     def reset(self, close_window: bool = False):
         self.score = 0
@@ -448,8 +461,18 @@ class SuikaGameController:
 
         print("Generating population...")
         p = Population(config)
+
+        if not os.path.exists(os.path.join(SCRIPT_DIR, "checkpoints")):
+            os.makedirs(os.path.join(SCRIPT_DIR, "checkpoints"))
+
+        checkpointer = Checkpointer(
+            generation_interval=1,
+            filename_prefix=os.path.join(SCRIPT_DIR, "checkpoints", "neat-checkpoint-"),
+        )
+
         p.add_reporter(StdOutReporter(True))
         p.add_reporter(StatisticsReporter())
+        p.add_reporter(checkpointer)
 
         print("Running NEAT game loop")
 
@@ -459,6 +482,10 @@ class SuikaGameController:
         except TypeError:
             if not self.killswitch:
                 raise
+
+        if winner:
+            with open(os.path.join(SCRIPT_DIR, "checkpoints", "winner.pkl"), "wb") as f:
+                pickle.dump(winner, f)
 
         return winner
 
