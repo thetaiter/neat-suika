@@ -162,6 +162,7 @@ cython_debug/
 
 # User ignores
 /checkpoints
+/genomes
 /logs
 high_score.txt
 high_score.png
