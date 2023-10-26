@@ -15,16 +15,15 @@ import pytesseract
 
 # Import NEAT libraries
 from neat import (
-    Checkpointer,
     DefaultGenome,
     DefaultReproduction,
     DefaultSpeciesSet,
     DefaultStagnation,
     Population,
-    StatisticsReporter,
 )
 from neat.config import Config
 from neat.nn import FeedForwardNetwork
+from neat.checkpoint import Checkpointer
 from neat.reporting import StdOutReporter
 
 
@@ -32,6 +31,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NEAT_CONFIG = os.path.join(SCRIPT_DIR, "neat.config")
 IMAGE_DIR = os.path.join(SCRIPT_DIR, "images")
 HIGH_SCORE_FILE = os.path.join(SCRIPT_DIR, "high_score.txt")
+HIGH_FITNESS_FILE = os.path.join(SCRIPT_DIR, "high_fitness.txt")
 GAME_LOG_FILE = os.path.join(SCRIPT_DIR, "logs", "suika_combination.log")
 SUIKA_EXECUTABLE = os.path.join(
     os.path.expanduser("~"),
@@ -47,6 +47,12 @@ class CustomStdOutReporter(StdOutReporter):
         self.generation = generation
         print(f"\n ****** Running generation {generation + 1} ****** \n")
         self.generation_start_time = time.time()
+
+    def end_generation(self, config, population, species_set):
+        pass
+
+    def post_evaluate(self, config, population, species, best_genome):
+        pass
 
 
 # Suika Game Controller class
@@ -70,6 +76,8 @@ class SuikaGameController:
     window_error: bool
     generation: int
     neat_run_start: float
+    high_fitness: int
+    high_fitness_file: str
 
     def __init__(
         self,
@@ -91,6 +99,14 @@ class SuikaGameController:
         else:
             self.high_score = 0
             self._write_high_score()
+
+        self.high_fitness_file = HIGH_FITNESS_FILE
+        if os.path.isfile(self.high_fitness_file):
+            with open(self.high_fitness_file, "r") as file:
+                self.high_fitness = int(file.read().strip())
+        else:
+            self.high_fitness = 0
+            self._write_high_fitness()
 
         self.neat_run_high_score = 0
         self.neat_run_high_fitness = 0
@@ -295,21 +311,29 @@ class SuikaGameController:
 
         return self.killswitch
 
-    def _load(self, checkpoint: int = -1, genome: str = ""):
-        if checkpoint == -1 and not genome:
+    def _load(self, generation: int = None, genome: str = None):
+        if generation is None and genome is None:
             print("No checkpoint or genome was provided.")
             return None
 
         loaded_population = None
-        if checkpoint > -1:
+        if generation is not None:
+            generation = generation - 1
+            self.generation = generation
+
+            if generation < 0:
+                raise Exception("Generation must be greater than 0")
+
             loaded_population = Checkpointer.restore_checkpoint(
-                os.path.join(SCRIPT_DIR, f"checkpoint-{checkpoint}")
+                os.path.join(SCRIPT_DIR, "checkpoints", f"generation-{generation}")
             )
 
             return loaded_population
 
         loaded_genome = None
-        with open(os.path.join(SCRIPT_DIR, "genomes", genome), "rb") as file:
+        with open(
+            os.path.join(SCRIPT_DIR, "genomes", f"genome-{genome}"), "rb"
+        ) as file:
             loaded_genome = pickle.load(file)
 
         return loaded_genome
@@ -350,9 +374,10 @@ class SuikaGameController:
 
             divider_length = 48
             print("=" * divider_length)
-            print(f"Running genome {count}")
-
-            self._save_genome(g, f"genome-{self.generation}-{count}")
+            print(
+                f"Genome {count}/{len(genomes)} ({round((count / len(genomes)) * 100, 2)}%), Generation {self.generation}"
+            )
+            print("-" * divider_length)
 
             net = FeedForwardNetwork.create(g, config)
             g.fitness = 0
@@ -361,10 +386,13 @@ class SuikaGameController:
             self.start()
 
             turns = 0
+            bonus = 0
+            positions = []
             start = time.time()
             last_position = -100
             position_not_changed_turns = 1
             position_not_changed_turns_threshold = 10
+            position_not_changed_score_threshold = 15000
             while not self._is_game_over() and not self._killswitch():
                 state = self._compute_game_state()
                 output = net.activate(state)
@@ -377,10 +405,17 @@ class SuikaGameController:
                     position_not_changed_turns += 1
                 else:
                     position_not_changed_turns = 1
+                    if turns != 0:
+                        bonus += 1
+
+                if position not in positions:
+                    positions.append(position)
+                    if turns != 0:
+                        bonus += 5
 
                 turns += 1
 
-                if position_not_changed_turns >= position_not_changed_turns_threshold:
+                if position_not_changed_turns >= position_not_changed_turns_threshold and self.score < position_not_changed_score_threshold:
                     print(
                         f"No movement in {position_not_changed_turns_threshold} turns, aborting"
                     )
@@ -395,65 +430,71 @@ class SuikaGameController:
                     self.window_error = False
 
                 self._extract_score()
-                g.fitness = self.score - turns - round(time.time() - start)
+                g.fitness = self.score - turns - round(time.time() - start) + bonus
             end = time.time()
             runtime = end - start
-
-            final = False
-            if position_not_changed_turns < position_not_changed_turns_threshold:
-                final = True
-
-            self._extract_score(final=final)
-            g.fitness = self.score - turns - round(runtime)
-
-            if g.fitness > generation_high_fitness:
-                generation_high_fitness = g.fitness
-
-            if g.fitness > self.neat_run_high_fitness:
-                self.neat_run_high_fitness = g.fitness
 
             if self.killswitch:
                 self.close()
                 exit()
 
+            final = False
+            quit_early_reduction = 15000
+            if position_not_changed_turns < position_not_changed_turns_threshold:
+                quit_early_reduction = 0
+                final = True
+
+            self._extract_score(final=final)
+            g.fitness = self.score - turns - round(runtime) + bonus - quit_early_reduction
+
+            if g.fitness > generation_high_fitness:
+                generation_high_fitness = g.fitness
+
+            if (self.neat_run_high_fitness == 0 and count == 1) or g.fitness > self.neat_run_high_fitness:
+                self.neat_run_high_fitness = g.fitness
+
             if self.score > generation_high_score:
                 generation_high_score = self.score
+
+            if g.fitness > self.high_fitness:
+                self.high_fitness = g.fitness
+                self._write_high_fitness()
 
             if (
                 self.check_high_score()
                 and position_not_changed_turns < position_not_changed_turns_threshold
             ):
                 self.submit_score(self.gamer_tag)
+                self._save_genome(g, f"genome-{self.generation}-{count}")
 
             score = self.score
             self.reset(close_window=True)
 
             print("-" * divider_length)
-            print(f"Time: {timedelta(seconds=runtime)}\tSeconds: {round(runtime)}")
-            print(f"Final Score: {score}\t\tGeneration HS: {generation_high_score}")
             print(
-                f"NEAT Run HS: {self.neat_run_high_score}\t\tAll Time HS: {self.high_score}"
+                f"Time: {timedelta(seconds=runtime)}\tSeconds:       {round(runtime)}"
             )
-            print(f"Turns: {turns}\t\tFitness: {g.fitness}")
+            print(f"Turns:         {turns}\tBonus:         {bonus}")
+            print(f"Final Score:   {score}  \tFitness:       {g.fitness}")
             print(
-                f"Generation HF: {generation_high_fitness}\tNEAT Run HF: {self.neat_run_high_fitness}"
+                f"Generation HS: {generation_high_score}  \tGeneration HF: {generation_high_fitness}"
+            )
+            print(
+                f"NEAT Run HS:   {self.neat_run_high_score}  \tNEAT Run HF:   {self.neat_run_high_fitness}"
+            )
+            print(
+                f"All Time HS:   {self.high_score}  \tAll Time HF:   {self.high_fitness}"
             )
             print("=" * divider_length)
 
-            genomes_left = len(genomes) - count
-            if genomes_left > 0:
-                verb_plural = "are" if genomes_left > 1 else "is"
-                genome_plural = "genomes" if genomes_left > 1 else "genome"
-                print(
-                    f"\nThere {verb_plural} {genomes_left} {genome_plural} remaining in generation {self.generation}"
-                )
-
-                count += 1
+            count += 1
 
         print(f"\nAll genomes in generation {self.generation} have been run!")
         print(f"\nGeneration High Score: {generation_high_score}")
         print(f"Generation High Fitness: {generation_high_fitness}")
-        print(f"Genomes Failed Early: {genomes_failed} ({round(genomes_failed / len(genomes), 2)}%)")
+        print(
+            f"Genomes Failed Early: {genomes_failed}/{len(genomes)} ({round((genomes_failed / len(genomes)) * 100, 2)}%)"
+        )
         generation_runtime = time.time() - generation_start
         neat_run_runtime = time.time() - self.neat_run_start
         print(f"Generation Runtime: {timedelta(seconds=generation_runtime)}")
@@ -463,6 +504,10 @@ class SuikaGameController:
     def _save_genome(self, genome, filename):
         with open(os.path.join(SCRIPT_DIR, "genomes", f"{filename}.pkl"), "wb") as file:
             pickle.dump(genome, file)
+
+    def _write_high_fitness(self):
+        with open(self.high_fitness_file, "w") as file:
+            file.write(str(self.high_fitness))
 
     def _write_high_score(self):
         with open(self.high_score_file, "w") as file:
@@ -552,26 +597,26 @@ class SuikaGameController:
             self._click_image("retry-button")
             self._move_mouse_to_position(0)
 
-    def run_neat_game_loop(self, checkpoint: int = -1):
+    def run_neat_game_loop(self, generation: int = None, genome: str = None):
         self.game_loop = "neat"
 
         self.neat_run_start = time.time()
 
-        print("Loading NEAT config...")
-        config = Config(
-            DefaultGenome,
-            DefaultReproduction,
-            DefaultSpeciesSet,
-            DefaultStagnation,
-            NEAT_CONFIG,
-        )
-
         population = None
-        if checkpoint > -1:
-            print(f"Loading population from checkpoint {checkpoint}...")
-            population = self._load(checkpoint=checkpoint)
+        if generation is not None:
+            print(f"Loading population from generation {generation}...")
+            population = self._load(generation=generation)
         else:
-            print("Generating population...")
+            print("Loading NEAT config")
+            config = Config(
+                DefaultGenome,
+                DefaultReproduction,
+                DefaultSpeciesSet,
+                DefaultStagnation,
+                NEAT_CONFIG,
+            )
+
+            print("Generating population")
             population = Population(config)
 
         for dir in ("checkpoints", "genomes"):
@@ -584,7 +629,6 @@ class SuikaGameController:
         )
 
         population.add_reporter(CustomStdOutReporter(True))
-        population.add_reporter(StatisticsReporter())
         population.add_reporter(checkpointer)
 
         print("Running NEAT game loop")
