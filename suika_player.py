@@ -12,9 +12,11 @@ import numpy as np
 import pyautogui
 import pygetwindow
 import pytesseract
+from scipy import stats
 
 # Import NEAT libraries
 from neat import (
+    CompleteExtinctionException,
     DefaultGenome,
     DefaultReproduction,
     DefaultSpeciesSet,
@@ -124,6 +126,25 @@ class SuikaGameController:
         self.window_error = False
         self.generation = 0
         self.neat_run_start = 0.0
+
+    def _calculate_bonus(self, positions: list, length_weight: float = 0.5, spread_weight: float = 0.5, multiplier: float = 2000.0):
+        # Remove outliers from positions
+        z_scores = np.abs(stats.zscore(positions))
+        filtered_positions = [pos for pos, z in zip(positions, z_scores) if z < 1]
+
+        # Return zero of filtered array is empty
+        if not filtered_positions:
+            return 0
+
+        # Calculate a score based on the number of positions and how spread out they are
+        length_score = len(filtered_positions) / (self.bucket_size + 1)
+        spread_score = (max(filtered_positions) - min(filtered_positions)) / self.bucket_size
+        final_score = (length_weight * length_score) + (spread_weight * spread_score)
+
+        return round(final_score * multiplier)
+    
+    def _calculate_fitness(self, turns: int, playtime: int, positions: list = None):
+        return self.score - turns - playtime + self._calculate_bonus(positions)
 
     def _check_window(self):
         if not pygetwindow.getWindowsWithTitle(self.title):
@@ -369,7 +390,7 @@ class SuikaGameController:
         genomes_failed = 0
         generation_start = time.time()
         for _, g in genomes:
-            if count != 1:
+            if count > 1:
                 print()
 
             divider_length = 48
@@ -380,19 +401,16 @@ class SuikaGameController:
             print("-" * divider_length)
 
             net = FeedForwardNetwork.create(g, config)
-            g.fitness = 0
 
-            self.launch()
-            self.start()
+            if count == 1 and self.generation == 1:
+                self.launch()
+                self.start()
 
             turns = 0
-            bonus = 0
+            runtime = 0
+            g.fitness = 0
             positions = []
             start = time.time()
-            last_position = -100
-            position_not_changed_turns = 1
-            position_not_changed_turns_threshold = 10
-            position_not_changed_score_threshold = 15000
             while not self._is_game_over() and not self._killswitch():
                 state = self._compute_game_state()
                 output = net.activate(state)
@@ -401,51 +419,25 @@ class SuikaGameController:
                 self.drop_at_position(position, output[1])
                 time.sleep(output[2])
 
-                if position == last_position:
-                    position_not_changed_turns += 1
-                else:
-                    position_not_changed_turns = 1
-                    if turns != 0:
-                        bonus += 1
-
                 if position not in positions:
                     positions.append(position)
-                    if turns != 0:
-                        bonus += 5
 
                 turns += 1
-
-                if position_not_changed_turns >= position_not_changed_turns_threshold and self.score < position_not_changed_score_threshold:
-                    print(
-                        f"No movement in {position_not_changed_turns_threshold} turns, aborting"
-                    )
-                    genomes_failed += 1
-                    time.sleep(1)
-                    break
-
-                last_position = position
 
                 if self.window_error:
                     turns = 0
                     self.window_error = False
-
+                
                 self._extract_score()
-                g.fitness = self.score - turns - round(time.time() - start) + bonus
-            end = time.time()
-            runtime = end - start
+                runtime = time.time() - start
+                g.fitness = self._calculate_fitness(turns, round(runtime), positions)
 
             if self.killswitch:
                 self.close()
                 exit()
 
-            final = False
-            quit_early_reduction = 15000
-            if position_not_changed_turns < position_not_changed_turns_threshold:
-                quit_early_reduction = 0
-                final = True
-
-            self._extract_score(final=final)
-            g.fitness = self.score - turns - round(runtime) + bonus - quit_early_reduction
+            self._extract_score(final=True)
+            g.fitness = self._calculate_fitness(turns, round(runtime), positions)
 
             if g.fitness > generation_high_fitness:
                 generation_high_fitness = g.fitness
@@ -460,22 +452,16 @@ class SuikaGameController:
                 self.high_fitness = g.fitness
                 self._write_high_fitness()
 
-            if (
-                self.check_high_score()
-                and position_not_changed_turns < position_not_changed_turns_threshold
-            ):
+            if self.check_high_score():
                 self.submit_score(self.gamer_tag)
                 self._save_genome(g, f"genome-{self.generation}-{count}")
-
-            score = self.score
-            self.reset(close_window=True)
 
             print("-" * divider_length)
             print(
                 f"Time: {timedelta(seconds=runtime)}\tSeconds:       {round(runtime)}"
             )
-            print(f"Turns:         {turns}\tBonus:         {bonus}")
-            print(f"Final Score:   {score}  \tFitness:       {g.fitness}")
+            print(f"Turns:         {turns}\tBonus:         {self._calculate_bonus(positions)}")
+            print(f"Final Score:   {self.score}  \tFitness:       {g.fitness}")
             print(
                 f"Generation HS: {generation_high_score}  \tGeneration HF: {generation_high_fitness}"
             )
@@ -486,6 +472,8 @@ class SuikaGameController:
                 f"All Time HS:   {self.high_score}  \tAll Time HF:   {self.high_fitness}"
             )
             print("=" * divider_length)
+
+            self.reset(close_window=False)
 
             count += 1
 
@@ -593,7 +581,6 @@ class SuikaGameController:
         if close_window:
             self.quit()
         else:
-            print(f"Retrying")
             self._click_image("retry-button")
             self._move_mouse_to_position(0)
 
@@ -641,6 +628,9 @@ class SuikaGameController:
         except TypeError:
             if not self.killswitch:
                 raise
+        except CompleteExtinctionException:
+            print("All species went extinct before the fitness goal was achieved.")
+            return None
 
         if winner:
             with open(os.path.join(SCRIPT_DIR, "genomes", "winner.pkl"), "wb") as f:
@@ -648,7 +638,7 @@ class SuikaGameController:
 
         return winner
 
-    def run_random_game_loop(self, num_retries):
+    def run_random_game_loop(self, num_retries, use_same_window: bool = True):
         self.game_loop = "random"
 
         try_number = 1
@@ -658,13 +648,14 @@ class SuikaGameController:
 
             print(f"Running random game {try_number}")
 
-            self.launch()
-            self.start()
+            if try_number == 1 or not use_same_window:
+                self.launch()
+                self.start()
 
             turns = 0
             start = time.time()
             while not self._is_game_over() and not self._killswitch():
-                self.drop_at_random_position()
+                self.drop_at_random_position(duration=0)
                 self._extract_score()
                 turns += 1
             end = time.time()
@@ -681,7 +672,7 @@ class SuikaGameController:
             if self.check_high_score():
                 self.submit_score(self.gamer_tag)
 
-            self.reset(close_window=True)
+            self.reset(close_window=not use_same_window)
 
             try_number += 1
 
